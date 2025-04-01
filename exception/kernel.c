@@ -1,0 +1,147 @@
+#include "kernel.h"
+#include "common.h"
+extern char __bss[], __bss_end[], __stack_top[];
+
+struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long fid, long eid)
+{
+    // 使用register的directive乃告知compiler這個變數會直接儲存在register，這樣可以少寫mv的assembly code
+    register long a0 __asm__("a0") = arg0;
+    register long a1 __asm__("a1") = arg1;
+    register long a2 __asm__("a2") = arg2;
+    register long a3 __asm__("a3") = arg3;
+    register long a4 __asm__("a4") = arg4;
+    register long a5 __asm__("a5") = arg5;
+    register long a6 __asm__("a6") = fid;
+    // 這裡為OpenSBI的extension id，對應OpenSBI的CONSOLE_PUTCHAR的function call
+    register long a7 __asm__("a7") = eid;
+
+    __asm__ __volatile__("ecall"
+                         : "=r"(a0), "=r"(a1)
+                         : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5),
+                           "r"(a6), "r"(a7)
+                         : "memory");
+    return (struct sbiret){.error = a0, .value = a1};
+}
+
+void putchar(char ch)
+{
+    sbi_call(ch, 0, 0, 0, 0, 0, 0, 1);
+}
+
+__attribute__((naked))
+__attribute__((aligned(4))) void
+kernel_entry(void)
+{
+    __asm__ __volatile__(
+        "csrw sscratch, sp\n" // store sp value into sscratch(supervisor sctratch register)
+        "addi sp, sp, -4 * 31\n"
+        "sw ra,  4 * 0(sp)\n" // return address
+        "sw gp,  4 * 1(sp)\n" // global pointer
+        "sw tp,  4 * 2(sp)\n" // thread pointer
+        "sw t0,  4 * 3(sp)\n" // temporary registers
+        "sw t1,  4 * 4(sp)\n"
+        "sw t2,  4 * 5(sp)\n"
+        "sw t3,  4 * 6(sp)\n"
+        "sw t4,  4 * 7(sp)\n"
+        "sw t5,  4 * 8(sp)\n"
+        "sw t6,  4 * 9(sp)\n"
+        "sw a0,  4 * 10(sp)\n" // function argument registers
+        "sw a1,  4 * 11(sp)\n"
+        "sw a2,  4 * 12(sp)\n"
+        "sw a3,  4 * 13(sp)\n"
+        "sw a4,  4 * 14(sp)\n"
+        "sw a5,  4 * 15(sp)\n"
+        "sw a6,  4 * 16(sp)\n"
+        "sw a7,  4 * 17(sp)\n"
+        "sw s0,  4 * 18(sp)\n" // saved registers(calle-saved)
+        "sw s1,  4 * 19(sp)\n"
+        "sw s2,  4 * 20(sp)\n"
+        "sw s3,  4 * 21(sp)\n"
+        "sw s4,  4 * 22(sp)\n"
+        "sw s5,  4 * 23(sp)\n"
+        "sw s6,  4 * 24(sp)\n"
+        "sw s7,  4 * 25(sp)\n"
+        "sw s8,  4 * 26(sp)\n"
+        "sw s9,  4 * 27(sp)\n"
+        "sw s10, 4 * 28(sp)\n"
+        "sw s11, 4 * 29(sp)\n"
+
+        "csrr a0, sscratch\n" // read sscratch(sp) into a0(argument 0)
+        "sw a0, 4 * 30(sp)\n" // store a0 register value into 4*30 address of sp
+
+        "mv a0, sp\n" // move sp value into a0, the a0 is represent as trap_frame
+        "call handle_trap\n"
+        // restore the register value
+        "lw ra,  4 * 0(sp)\n"
+        "lw gp,  4 * 1(sp)\n"
+        "lw tp,  4 * 2(sp)\n"
+        "lw t0,  4 * 3(sp)\n"
+        "lw t1,  4 * 4(sp)\n"
+        "lw t2,  4 * 5(sp)\n"
+        "lw t3,  4 * 6(sp)\n"
+        "lw t4,  4 * 7(sp)\n"
+        "lw t5,  4 * 8(sp)\n"
+        "lw t6,  4 * 9(sp)\n"
+        "lw a0,  4 * 10(sp)\n"
+        "lw a1,  4 * 11(sp)\n"
+        "lw a2,  4 * 12(sp)\n"
+        "lw a3,  4 * 13(sp)\n"
+        "lw a4,  4 * 14(sp)\n"
+        "lw a5,  4 * 15(sp)\n"
+        "lw a6,  4 * 16(sp)\n"
+        "lw a7,  4 * 17(sp)\n"
+        "lw s0,  4 * 18(sp)\n"
+        "lw s1,  4 * 19(sp)\n"
+        "lw s2,  4 * 20(sp)\n"
+        "lw s3,  4 * 21(sp)\n"
+        "lw s4,  4 * 22(sp)\n"
+        "lw s5,  4 * 23(sp)\n"
+        "lw s6,  4 * 24(sp)\n"
+        "lw s7,  4 * 25(sp)\n"
+        "lw s8,  4 * 26(sp)\n"
+        "lw s9,  4 * 27(sp)\n"
+        "lw s10, 4 * 28(sp)\n"
+        "lw s11, 4 * 29(sp)\n"
+        "lw sp,  4 * 30(sp)\n"
+        "sret\n" // call sret to transfer control from s mode into u mode
+
+    );
+}
+
+void handle_trap(struct trap_frame *f)
+{
+    uint32_t scause = READ_CSR(scause);
+    uint32_t stval = READ_CSR(stval);
+    uint32_t user_pc = READ_CSR(sepc);
+
+    PANIC("unexpected trap scause=%x, stval=%x ,spec=%x", scause, stval, user_pc);
+}
+
+void kernel_main(void)
+{
+    memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
+    printf("\n\nHello %s\n", "World");
+    WRITE_CSR(stvec, (uint32_t)kernel_entry);
+    __asm__ __volatile__(".word 0xFFFFFFFF"); 
+    // unimp會轉換成 csrrw x0, cycle, x0，其會是將cycle的值存進x0，然後將x0的值存進cycle，但cycle為read-only register，所以會是illegal的instruction，
+    // 但若直接看unimp，其instruction代表的address，但此risc-v無法解析所以是0"
+    // 使用.word 0xFFFFFFFF"，當前指令位置純入0xFFFFFFFF，所以stval會為ffffffff
+    //
+    for (;;)
+    {
+        // 這邊會呼叫wait for interrupt的instruction，等待interupt的事件發生
+        __asm__ __volatile__("wfi");
+    }
+}
+
+__attribute__((section(".text.boot")))
+__attribute__((naked)) void
+boot(void)
+{
+    __asm__ __volatile__(
+        "mv sp, %[stack_top]\n" // Set the stack pointer
+        "j kernel_main\n"       // Jump to the kernel main function
+        :
+        : [stack_top] "r"(__stack_top) // Pass the stack top address as %[stack_top]
+    );
+}
