@@ -1,18 +1,16 @@
 #pragma once
 #include "common.h"
+#include "page.h"
 
 #define PROCS_MAX 8 //Maximum number of processes
 
 #define PROC_UNUSED 0 //Unused process control structure
 #define PROC_RUNABLE 1 //Runuable process
 
-<<<<<<< HEAD
-=======
 
 
 
 
->>>>>>> e020a3f (chore: adding page table chapter's code)
 struct process{
     int pid; //Process ID
     int state; //Proess state: PROC_UNUSED or PROC_RUNNABLE
@@ -77,17 +75,12 @@ struct trap_frame {
         __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                \
     } while (0)
 
-#define PANIC(fmt, ...)                                                        \
-    do {                                                                       \
-        printf("PANIC: %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);  \
-        while (1) {}                                                           \
-    } while (0)
 
 struct process *create_process(uint32_t pc);
 void delay(void);
 void proc_a_entry(void);
 void proc_b_entry(void);
-paddr_t alloc_pages(uint32_t n);
+
 void putchar(char ch);
 void handle_trap(struct trap_frame *f);
 void kernel_main(void);
