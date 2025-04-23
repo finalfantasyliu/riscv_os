@@ -2,7 +2,7 @@
 #include "common.h"
 extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
-
+extern char __kernel_base[];
 struct process *proc_a;
 struct process *proc_b;
 struct process procs[PROCS_MAX];
@@ -34,6 +34,16 @@ void yield(void)
     }
     struct process *prev_process = current_process;
     current_process = next;
+__asm__ __volatile__(
+    "sfence.vma\n"
+    "csrw satp, %[satp]\n"
+    "sfence.vma\n"
+    "csrw sscratch, %[sscratch]\n"
+    :
+    :[satp]"r"(SATP_SV32|((uint32_t)next->page_table/PAGE_SIZE)),
+     [sscratch]"r"((uint32_t)&next->stack[sizeof(next->stack)])
+);
+    
     switch_context(&(prev_process->sp), &(next->sp));
 }
 
@@ -70,6 +80,10 @@ struct process *create_process(uint32_t pc)
     *--sp = 0;            // s1
     *--sp = 0;            // s0
     *--sp = (uint32_t)pc; // ra
+
+    uint32_t *page_table = (uint32_t *)alloc_pages(1);
+    for (paddr_t paddr = (paddr_t)__kernel_base; paddr < (paddr_t)__free_ram_end; paddr += PAGE_SIZE)
+        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
 
     // Initialize fields.
     proc->pid = i + 1;
@@ -145,7 +159,6 @@ void proc_b_entry(void)
         delay();
     }
 }
-
 
 struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long fid, long eid)
 {

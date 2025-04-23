@@ -6,13 +6,10 @@
 #define PROC_UNUSED 0 //Unused process control structure
 #define PROC_RUNABLE 1 //Runuable process
 
-<<<<<<< HEAD
-=======
 
 
 
 
->>>>>>> e020a3f (chore: adding page table chapter's code)
 struct process{
     int pid; //Process ID
     int state; //Proess state: PROC_UNUSED or PROC_RUNNABLE

@@ -15,6 +15,7 @@ struct process{
     int pid; //Process ID
     int state; //Proess state: PROC_UNUSED or PROC_RUNNABLE
     vaddr_t sp; //stack pointer
+    uint32_t *page_table;
     uint8_t stack[8192]; //kernel stack
 };
 
