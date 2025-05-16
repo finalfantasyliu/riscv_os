@@ -3,6 +3,9 @@
 extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
 extern char __kernel_base[];
+extern char __text_end[];
+extern char __rodata_end[];
+extern char __data_end[];
 struct process *proc_a;
 struct process *proc_b;
 struct process procs[PROCS_MAX];
@@ -34,16 +37,23 @@ void yield(void)
     }
     struct process *prev_process = current_process;
     current_process = next;
-__asm__ __volatile__(
-    "sfence.vma\n"
-    "csrw satp, %[satp]\n"
-    "sfence.vma\n"
-    "csrw sscratch, %[sscratch]\n"
-    :
-    :[satp]"r"(SATP_SV32|((uint32_t)next->page_table/PAGE_SIZE)),
-     [sscratch]"r"((uint32_t)&next->stack[sizeof(next->stack)])
-);
-    
+    __asm__ __volatile__(
+        "sfence.vma\n"
+        "csrw satp, %[satp]\n"
+        "sfence.vma\n"
+        "csrw sscratch, %[sscratch]\n"
+        :
+        : [satp] "r"(SATP_SV32 | ((uint32_t)next->page_table / PAGE_SIZE)),
+          [sscratch] "r"((uint32_t)&next->stack[sizeof(next->stack)])
+        );
+
+         // char *p=__bss_end-0x1000;
+         // memset(p,1,4096);
+      /* uint8_t *last=(uint8_t*)__bss_end -1;
+       uint32_t page=(uint32_t)last & ~(PAGE_SIZE - 1);
+       uint8_t *p=(uint8_t*)page;
+       printf("last page of bss: %x",p);
+       *p=0xFF;*/
     switch_context(&(prev_process->sp), &(next->sp));
 }
 
@@ -82,9 +92,10 @@ struct process *create_process(uint32_t pc)
     *--sp = (uint32_t)pc; // ra
 
     uint32_t *page_table = (uint32_t *)alloc_pages(1);
+    printf("page_table: %x\n",page_table);
     for (paddr_t paddr = (paddr_t)__kernel_base; paddr < (paddr_t)__free_ram_end; paddr += PAGE_SIZE)
         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
-
+    proc->page_table = page_table;
     // Initialize fields.
     proc->pid = i + 1;
     proc->state = PROC_RUNABLE;
@@ -139,7 +150,13 @@ void proc_a_entry(void)
     printf("starting process A\n");
     while (1)
     {
+
         putchar('A');
+      uint8_t *last=(uint8_t*)__bss_end -1;
+       uint32_t page=(uint32_t)last & ~(PAGE_SIZE - 1);
+       uint8_t *p=(uint8_t*)page;
+       printf("last page of bss: %x",p);
+       *p=0xFF;
         yield();
         delay();
         // switch_context(&proc_a->sp, &proc_b->sp);
@@ -153,6 +170,12 @@ void proc_b_entry(void)
     while (1)
     {
         putchar('B');
+        putchar('A');
+        /*uint8_t *last=(uint8_t*)__bss_end -1;
+         uint32_t page=(uint32_t)last & ~(PAGE_SIZE - 1);
+         uint8_t *p=(uint8_t*)page;
+         printf("last page of bss: %x",p);
+         *p=0xFF;*/
         //       switch_context(&proc_b->sp, &proc_a->sp);
         //      delay();
         yield();
@@ -278,12 +301,22 @@ void handle_trap(struct trap_frame *f)
 void kernel_main(void)
 {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
+    
     WRITE_CSR(stvec, (uint32_t)kernel_entry);
+    printf("__text_end :%x\n",__text_end);
+    printf("__rodata_end :%x\n",__rodata_end);
+    printf("__data_end: %x\n",__data_end);
+    printf("__bss: %x\n",__bss);
+    printf("__bss_end: %x\n",__bss_end);
+    printf("__stack_top: %x\n",__stack_top);
+    printf("free_ram: %x\n",__free_ram);
+    printf("free_ram_end: %x\n",__free_ram_end);
     idle_process = create_process((uint32_t)NULL);
     idle_process->pid = 0;
     current_process = idle_process;
     proc_a = create_process((uint32_t)proc_a_entry);
     proc_b = create_process((uint32_t)proc_b_entry);
+   
     proc_a_entry();
     proc_b_entry();
     yield();
